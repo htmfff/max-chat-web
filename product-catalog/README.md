@@ -38,7 +38,7 @@
 ```
 product-catalog/
 ├── backend/
-│   ├── bin/                  # migrate.php, seed.php, worker.php
+│   ├── bin/                  # import.php, migrate.php, seed.php, worker.php
 │   ├── config/               # bootstrap, DI-контейнер, маршруты
 │   ├── migrations/           # миграции Doctrine
 │   ├── public/               # точка входа index.php, uploads
@@ -163,6 +163,30 @@ curl -s -X POST http://localhost:8080/api/imports \
 Повторный импорт того же `Внешний код` обновляет товар, атрибуты и изображения,
 а не создаёт дубликат. Ошибочные строки не прерывают импорт: они попадают в
 отчёт с номером строки, внешним кодом и сообщением.
+
+## Скрипт: таблица из задания → таблица проекта
+
+`backend/bin/import.php` берёт исходный `.xlsx` из задания и переводит его в
+структуру таблиц проекта (`products` + `product_attributes` + `product_images`).
+
+```bash
+# показать таблицу проекта, не записывая в БД
+make import
+# то же локально:
+cd backend && php bin/import.php ../samples/import_example.xlsx
+
+# записать результат в БД
+make import-save
+
+# дополнительно выгрузить полную таблицу в CSV
+cd backend && php bin/import.php ../samples/import_example.xlsx --csv=var/products.csv
+```
+
+Вывод в консоль: `№`, `Внешний код`, `Наименование`, `Цена`, `Закупка`,
+`Скидка`, `Атрибуты`, `Фото`. CSV содержит полный набор полей проекта:
+`external_code`, `name`, `description`, `price`, `purchase_price`, `discount`,
+`attributes`, `image_urls`. Файл `samples/import_example.xlsx` — это ровно тот
+пример, который приложен к заданию.
 
 ## Как работает импорт
 

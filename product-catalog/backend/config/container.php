@@ -8,6 +8,7 @@ use App\Application\Service\DiscountCalculator;
 use App\Application\Service\ImageDownloaderInterface;
 use App\Application\Service\ImportDispatcher;
 use App\Application\Service\ProductImportService;
+use App\Application\Service\ProductRowMapper;
 use App\Application\Service\ProductService;
 use App\Http\Controller\DocsController;
 use App\Http\Controller\ImportController;
@@ -86,12 +87,16 @@ return [
         $c->get(DiscountCalculator::class),
     ),
 
+    ProductRowMapper::class => static fn (ContainerInterface $c): ProductRowMapper => new ProductRowMapper(
+        $c->get(XlsxParser::class),
+        $c->get(DiscountCalculator::class),
+    ),
+
     ProductImportService::class => static fn (ContainerInterface $c): ProductImportService => new ProductImportService(
         $c->get(EntityManagerInterface::class),
         $c->get(App\Infrastructure\Persistence\Repository\ProductRepository::class),
         $c->get(ImageDownloaderInterface::class),
-        $c->get(DiscountCalculator::class),
-        $c->get(XlsxParser::class),
+        $c->get(ProductRowMapper::class),
         $c->get(LoggerInterface::class),
     ),
 

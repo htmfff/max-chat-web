@@ -1,9 +1,11 @@
-.PHONY: help env up down build restart logs migrate seed test stan cs worker-logs db-shell frontend-dev e2e clean
+.PHONY: help env up down build restart logs migrate seed import import-save test stan cs worker-logs db-shell frontend-dev e2e clean
 
 help:
 	@echo "make up          - build and start all containers"
 	@echo "make migrate     - run Doctrine migrations"
 	@echo "make seed        - load demo products and admin user"
+	@echo "make import      - map samples/import_example.xlsx to the project table"
+	@echo "make import-save - import samples/import_example.xlsx into the database"
 	@echo "make test        - run PHPUnit tests"
 	@echo "make stan        - run PHPStan (level 5)"
 	@echo "make cs          - check code style with PHP-CS-Fixer"
@@ -46,6 +48,12 @@ migrate:
 
 seed:
 	docker compose exec app php bin/seed.php
+
+import:
+	docker compose exec -T app php bin/import.php samples/import_example.xlsx
+
+import-save:
+	docker compose exec -T app php bin/import.php samples/import_example.xlsx --save
 
 test:
 	docker compose exec -T app php vendor/bin/phpunit

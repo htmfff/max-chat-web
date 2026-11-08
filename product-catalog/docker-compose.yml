@@ -45,6 +45,7 @@ services:
     volumes:
       - uploads:/var/www/html/public/uploads
       - imports:/var/www/html/var/uploads
+      - ./samples:/var/www/html/samples:ro
 
   worker:
     build:
@@ -61,6 +62,7 @@ services:
     volumes:
       - uploads:/var/www/html/public/uploads
       - imports:/var/www/html/var/uploads
+      - ./samples:/var/www/html/samples:ro
 
   nginx:
     build:

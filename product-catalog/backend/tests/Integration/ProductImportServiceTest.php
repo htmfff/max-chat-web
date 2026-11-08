@@ -6,6 +6,7 @@ namespace Tests\Integration;
 
 use App\Application\Service\DiscountCalculator;
 use App\Application\Service\ProductImportService;
+use App\Application\Service\ProductRowMapper;
 use App\Domain\Entity\Product;
 use App\Infrastructure\Import\XlsxParser;
 use App\Infrastructure\Persistence\Repository\ProductRepository;
@@ -24,8 +25,7 @@ final class ProductImportServiceTest extends DatabaseTestCase
             $this->em,
             new ProductRepository($this->em),
             $downloader,
-            new DiscountCalculator(),
-            new XlsxParser(),
+            new ProductRowMapper(new XlsxParser(), new DiscountCalculator()),
             new NullLogger(),
         );
 
@@ -64,6 +64,26 @@ final class ProductImportServiceTest extends DatabaseTestCase
         self::assertCount(40, $productsAfter);
     }
 
+    public function testPreviewMapsTheSourceTableWithoutWritingToDatabase(): void
+    {
+        $mapper = new ProductRowMapper(new XlsxParser(), new DiscountCalculator());
+        $preview = $mapper->mapFile(dirname(__DIR__, 2) . '/../samples/import_example.xlsx');
+
+        self::assertSame(40, $preview['total']);
+        self::assertCount(40, $preview['rows']);
+        self::assertSame([], $preview['errors']);
+
+        $first = $preview['rows'][0]['product'];
+        self::assertSame('3UHfAid1jaMiwgBuNvnsf3', $first['externalCode']);
+        self::assertSame('1320.00', $first['price']);
+        self::assertSame('880.00', $first['purchasePrice']);
+        self::assertSame('33.33', $first['discount']);
+        self::assertGreaterThanOrEqual(10, count($first['attributes']));
+        self::assertCount(3, $first['imageUrls']);
+
+        self::assertCount(0, $this->em->getRepository(Product::class)->findAll());
+    }
+
     public function testInvalidRowsDoNotStopTheImport(): void
     {
         $path = sys_get_temp_dir() . '/import_invalid_' . bin2hex(random_bytes(6)) . '.xlsx';
@@ -74,8 +94,7 @@ final class ProductImportServiceTest extends DatabaseTestCase
             $this->em,
             new ProductRepository($this->em),
             $downloader,
-            new DiscountCalculator(),
-            new XlsxParser(),
+            new ProductRowMapper(new XlsxParser(), new DiscountCalculator()),
             new NullLogger(),
         );
 

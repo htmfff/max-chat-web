@@ -7,21 +7,20 @@ namespace App\Application\Service;
 use App\Domain\Entity\Product;
 use App\Domain\Entity\ProductAttribute;
 use App\Domain\Entity\ProductImage;
-use App\Infrastructure\Import\RowValidationException;
-use App\Infrastructure\Import\XlsxDocument;
-use App\Infrastructure\Import\XlsxParser;
 use App\Infrastructure\Persistence\Repository\ProductRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 
+/**
+ * @phpstan-import-type MappedProduct from ProductRowMapper
+ */
 final class ProductImportService
 {
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly ProductRepository $products,
         private readonly ImageDownloaderInterface $imageDownloader,
-        private readonly DiscountCalculator $discountCalculator,
-        private readonly XlsxParser $parser,
+        private readonly ProductRowMapper $mapper,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -34,58 +33,39 @@ final class ProductImportService
      */
     public function import(string $filePath, ?callable $onProgress = null): ImportReport
     {
-        $document = $this->parser->parse($filePath);
-        $total = $document->count();
+        $mapped = $this->mapper->mapFile($filePath);
+        $total = $mapped['total'];
+        $errors = $mapped['errors'];
         $processed = 0;
         $success = 0;
-        $errors = [];
 
-        $columns = [
-            'externalCode' => $document->columnIndex('Внешний код', 'Код'),
-            'name' => $document->columnIndex('Наименование'),
-            'description' => $document->columnIndex('Описание'),
-            'price' => $document->columnIndex('Цена: Цена продажи', 'Цена'),
-            'purchasePrice' => $document->columnIndex('Закупочная цена'),
-        ];
-        $attributeColumns = $document->attributeColumns();
-        $imageColumn = $document->imageColumn();
-
-        foreach ($document->rows() as $row) {
+        foreach ($mapped['rows'] as $entry) {
             ++$processed;
-            $externalCode = null;
+            $data = $entry['product'];
 
             try {
-                $data = $this->mapRow($document, $row, $columns, $attributeColumns, $imageColumn);
-                $externalCode = $data['externalCode'];
-
                 $images = $this->downloadImages(
                     $data['imageUrls'],
-                    $externalCode,
-                    $row['number'],
+                    $data['externalCode'],
+                    $entry['row'],
                     $errors,
                 );
 
                 $this->persistProduct($data, $images);
                 ++$success;
-            } catch (RowValidationException $e) {
-                $errors[] = [
-                    'row' => $row['number'],
-                    'message' => $e->getMessage(),
-                    'externalCode' => $externalCode,
-                ];
             } catch (\Throwable $e) {
                 $this->logger->error('Product import row failed', [
-                    'row' => $row['number'],
+                    'row' => $entry['row'],
                     'error' => $e->getMessage(),
                 ]);
                 $errors[] = [
-                    'row' => $row['number'],
+                    'row' => $entry['row'],
                     'message' => 'Внутренняя ошибка импорта строки: ' . $e->getMessage(),
-                    'externalCode' => $externalCode,
+                    'externalCode' => $data['externalCode'],
                 ];
             }
 
-            if ($onProgress !== null && ($processed % 5 === 0 || $processed === $total)) {
+            if ($onProgress !== null && ($processed % 5 === 0 || $processed === count($mapped['rows']))) {
                 $onProgress($processed, $total, $success, $errors);
             }
         }
@@ -94,81 +74,18 @@ final class ProductImportService
     }
 
     /**
-     * @param array{number: int, cells: array<int, mixed>} $row
-     * @param array<string, int|null> $columns
-     * @param array<string, int> $attributeColumns
+     * Maps the source spreadsheet to the project's own product table without
+     * touching the database. Used by the CLI script and safe previews.
+     *
      * @return array{
-     *     externalCode: string,
-     *     name: string,
-     *     description: ?string,
-     *     price: string,
-     *     purchasePrice: ?string,
-     *     discount: ?string,
-     *     attributes: list<array{key: string, value: string}>,
-     *     imageUrls: list<string>
+     *     total: int,
+     *     rows: list<array{row: int, product: MappedProduct}>,
+     *     errors: list<array{row: int, message: string, externalCode: ?string}>
      * }
      */
-    private function mapRow(
-        XlsxDocument $document,
-        array $row,
-        array $columns,
-        array $attributeColumns,
-        ?int $imageColumn,
-    ): array {
-        $externalCode = $this->stringValue($document->value($row, $columns['externalCode']));
-
-        if ($externalCode === null || $externalCode === '') {
-            throw new RowValidationException('Не заполнен обязательный столбец "Внешний код".');
-        }
-
-        if (mb_strlen($externalCode) > 191) {
-            throw new RowValidationException('Внешний код длиннее 191 символа.');
-        }
-
-        $name = $this->stringValue($document->value($row, $columns['name']));
-
-        if ($name === null || $name === '') {
-            throw new RowValidationException('Не заполнен обязательный столбец "Наименование".');
-        }
-
-        if (mb_strlen($name) > 500) {
-            throw new RowValidationException('Наименование длиннее 500 символов.');
-        }
-
-        $price = $this->discountCalculator->normalizePrice($document->value($row, $columns['price']));
-
-        if ($price === null || (float) $price <= 0.0) {
-            throw new RowValidationException('Некорректная цена продажи.');
-        }
-
-        $purchasePrice = $this->discountCalculator->normalizePrice(
-            $document->value($row, $columns['purchasePrice']),
-        );
-
-        $attributes = [];
-        foreach ($attributeColumns as $label => $index) {
-            $value = $this->stringValue($document->value($row, $index));
-
-            if ($value === null || $value === '') {
-                continue;
-            }
-
-            $attributes[] = [
-                'key' => mb_substr($label, 0, 191),
-                'value' => $value,
-            ];
-        }
-
-        return [
-            'externalCode' => $externalCode,
-            'name' => $name,
-            'description' => $this->stringValue($document->value($row, $columns['description'])),
-            'price' => $price,
-            'purchasePrice' => $purchasePrice,
-            'discount' => $this->discountCalculator->calculate($price, $purchasePrice),
-            'attributes' => $attributes,
-            'imageUrls' => $this->extractImageUrls($document->value($row, $imageColumn)),
-        ];
+    public function preview(string $filePath): array
+    {
+        return $this->mapper->mapFile($filePath);
     }
 
     /**
@@ -198,15 +115,7 @@ final class ProductImportService
     }
 
     /**
-     * @param array{
-     *     externalCode: string,
-     *     name: string,
-     *     description: ?string,
-     *     price: string,
-     *     purchasePrice: ?string,
-     *     discount: ?string,
-     *     attributes: list<array{key: string, value: string}>
-     * } $data
+     * @param MappedProduct $data
      * @param list<array{url: string, path: ?string}> $images
      */
     private function persistProduct(array $data, array $images): void
@@ -237,38 +146,5 @@ final class ProductImportService
 
             $this->products->save($product, false);
         });
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function extractImageUrls(mixed $value): array
-    {
-        if ($value === null || $value === '') {
-            return [];
-        }
-
-        $parts = preg_split('/[\s,;]+/', trim((string) $value)) ?: [];
-        $urls = [];
-
-        foreach ($parts as $part) {
-            $part = trim($part);
-            if ($part !== '' && filter_var($part, FILTER_VALIDATE_URL) !== false) {
-                $urls[] = $part;
-            }
-        }
-
-        return array_values(array_unique($urls));
-    }
-
-    private function stringValue(mixed $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        $string = trim((string) $value);
-
-        return $string === '' ? null : $string;
     }
 }
