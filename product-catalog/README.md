@@ -178,15 +178,26 @@ cd backend && php bin/import.php ../samples/import_example.xlsx
 # записать результат в БД
 make import-save
 
-# дополнительно выгрузить полную таблицу в CSV
-cd backend && php bin/import.php ../samples/import_example.xlsx --csv=var/products.csv
+# дополнительно выгрузить полную таблицу в CSV и XLSX
+cd backend && php bin/import.php ../samples/import_example.xlsx \
+  --csv=../samples/products_table.csv \
+  --xlsx=../samples/products_table.xlsx
 ```
 
 Вывод в консоль: `№`, `Внешний код`, `Наименование`, `Цена`, `Закупка`,
-`Скидка`, `Атрибуты`, `Фото`. CSV содержит полный набор полей проекта:
+`Скидка`, `Атрибуты`, `Фото`. CSV и XLSX содержат полный набор полей проекта:
 `external_code`, `name`, `description`, `price`, `purchase_price`, `discount`,
-`attributes`, `image_urls`. Файл `samples/import_example.xlsx` — это ровно тот
-пример, который приложен к заданию.
+`attributes`, `image_urls`.
+
+Готовый результат уже лежит в репозитории:
+
+- [`samples/products_table.csv`](samples/products_table.csv) — 40 товаров,
+  GitHub показывает файл как таблицу;
+- [`samples/products_table.xlsx`](samples/products_table.xlsx) — то же самое
+  в Excel.
+
+Файл `samples/import_example.xlsx` — это ровно тот пример, который приложен
+к заданию.
 
 ## Как работает импорт
 

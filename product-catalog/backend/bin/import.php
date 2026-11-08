@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use App\Application\Service\ProductImportService;
 use App\Application\Service\ProductRowMapper;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 $container = require dirname(__DIR__) . '/config/bootstrap.php';
 
@@ -65,7 +67,6 @@ function writeProductCsv(string $path, array $rows): void
         exit(1);
     }
 
-    fwrite($handle, "\xEF\xBB\xBF");
     fputcsv($handle, [
         'external_code',
         'name',
@@ -75,7 +76,7 @@ function writeProductCsv(string $path, array $rows): void
         'discount',
         'attributes',
         'image_urls',
-    ], ';');
+    ]);
 
     foreach ($rows as $entry) {
         $product = $entry['product'];
@@ -93,10 +94,60 @@ function writeProductCsv(string $path, array $rows): void
             $product['discount'] ?? '',
             implode('; ', $attributes),
             implode(' ', $product['imageUrls']),
-        ], ';');
+        ]);
     }
 
     fclose($handle);
+}
+
+/**
+ * @param list<array{row: int, product: array<string, mixed>}> $rows
+ */
+function writeProductXlsx(string $path, array $rows): void
+{
+    $spreadsheet = new Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->fromArray([
+        [
+            'external_code',
+            'name',
+            'description',
+            'price',
+            'purchase_price',
+            'discount',
+            'attributes',
+            'image_urls',
+        ],
+    ]);
+
+    $line = 2;
+    foreach ($rows as $entry) {
+        $product = $entry['product'];
+        $attributes = array_map(
+            static fn (array $attribute): string => $attribute['key'] . '=' . $attribute['value'],
+            $product['attributes'],
+        );
+
+        $sheet->fromArray([[
+            $product['externalCode'],
+            $product['name'],
+            $product['description'] ?? '',
+            $product['price'],
+            $product['purchasePrice'] ?? '',
+            $product['discount'] ?? '',
+            implode('; ', $attributes),
+            implode(' ', $product['imageUrls']),
+        ]], null, 'A' . $line);
+
+        ++$line;
+    }
+
+    foreach (range('A', 'H') as $column) {
+        $sheet->getColumnDimension($column)->setAutoSize(true);
+    }
+
+    (new Xlsx($spreadsheet))->save($path);
+    $spreadsheet->disconnectWorksheets();
 }
 
 /**
@@ -115,15 +166,17 @@ function printErrors(array $errors): void
 $file = null;
 $save = false;
 $csvPath = null;
+$xlsxPath = null;
 
 foreach (array_slice($argv, 1) as $argument) {
     if ($argument === '--help' || $argument === '-h') {
         fwrite(STDOUT, <<<'HELP'
-            Usage: php bin/import.php [file.xlsx] [--save] [--csv=path]
+            Usage: php bin/import.php [file.xlsx] [--save] [--csv=path] [--xlsx=path]
 
-              file.xlsx   таблица из задания (по умолчанию samples/import_example.xlsx)
-              --save      записать строки в БД (по умолчанию только вывод таблицы)
-              --csv=path  дополнительно сохранить таблицу проекта в CSV
+              file.xlsx    таблица из задания (по умолчанию samples/import_example.xlsx)
+              --save       записать строки в БД (по умолчанию только вывод таблицы)
+              --csv=path   дополнительно сохранить таблицу проекта в CSV
+              --xlsx=path  дополнительно сохранить таблицу проекта в XLSX
 
             HELP);
         exit(0);
@@ -136,6 +189,11 @@ foreach (array_slice($argv, 1) as $argument) {
 
     if (str_starts_with($argument, '--csv=')) {
         $csvPath = substr($argument, 6);
+        continue;
+    }
+
+    if (str_starts_with($argument, '--xlsx=')) {
+        $xlsxPath = substr($argument, 7);
         continue;
     }
 
@@ -177,6 +235,11 @@ printProductTable($preview['rows']);
 if ($csvPath !== null) {
     writeProductCsv($csvPath, $preview['rows']);
     fwrite(STDOUT, PHP_EOL . 'Таблица проекта сохранена в CSV: ' . $csvPath . PHP_EOL);
+}
+
+if ($xlsxPath !== null) {
+    writeProductXlsx($xlsxPath, $preview['rows']);
+    fwrite(STDOUT, 'Таблица проекта сохранена в XLSX: ' . $xlsxPath . PHP_EOL);
 }
 
 if ($preview['errors'] !== []) {
