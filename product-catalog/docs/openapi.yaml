@@ -1,0 +1,351 @@
+openapi: 3.0.3
+info:
+  title: Product Catalog API
+  version: 1.0.0
+  description: |
+    API тестового задания: импорт товаров из .xlsx, список с серверной пагинацией,
+    карточка товара, статус асинхронного импорта и JWT-аутентификация.
+servers:
+  - url: /api
+    description: Same origin (nginx proxy)
+tags:
+  - name: Health
+  - name: Auth
+  - name: Products
+  - name: Imports
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Проверка доступности API и БД
+      security: []
+      responses:
+        '200':
+          description: Сервис доступен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  database: { type: string, example: ok }
+                  timestamp: { type: string, format: date-time }
+                  version: { type: string, example: 1.0.0 }
+        '503':
+          description: База данных недоступна
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Получить JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: admin@example.com }
+                password: { type: string, example: admin123 }
+      responses:
+        '200':
+          description: Токен выдан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  expiresIn: { type: integer, example: 28800 }
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Неверный email или пароль
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Текущий пользователь
+      responses:
+        '200':
+          description: Пользователь
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Не авторизован
+  /products:
+    get:
+      tags: [Products]
+      summary: Список товаров (серверная пагинация, поиск, фильтр по цене)
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: name, in: query, description: Поиск по наименованию (LIKE), schema: { type: string } }
+        - { name: priceFrom, in: query, schema: { type: number, example: 500 } }
+        - { name: priceTo, in: query, schema: { type: number, example: 2000 } }
+        - { name: sort, in: query, schema: { type: string, enum: [id, name, price, discount, createdAt, updatedAt], default: id } }
+        - { name: direction, in: query, schema: { type: string, enum: [asc, desc], default: asc } }
+      responses:
+        '200':
+          description: Страница товаров
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+    post:
+      tags: [Products]
+      summary: Создать товар (CRUD, используется тестами/админкой)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+      responses:
+        '201':
+          description: Товар создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '422':
+          description: Ошибка валидации
+  /products/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Products]
+      summary: Карточка товара
+      responses:
+        '200':
+          description: Товар
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '404':
+          description: Товар не найден
+    put:
+      tags: [Products]
+      summary: Обновить товар
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+      responses:
+        '200':
+          description: Товар обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '404':
+          description: Товар не найден
+    delete:
+      tags: [Products]
+      summary: Удалить товар
+      responses:
+        '204':
+          description: Товар удалён
+        '404':
+          description: Товар не найден
+  /imports:
+    get:
+      tags: [Imports]
+      summary: Последние 10 задач импорта
+      responses:
+        '200':
+          description: Список задач
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ImportJob'
+    post:
+      tags: [Imports]
+      summary: Загрузить .xlsx и поставить импорт в очередь
+      description: |
+        Принимает multipart/form-data. Rate limit по IP: 5 запросов в 60 секунд
+        (настраивается через IMPORT_RATE_LIMIT / IMPORT_RATE_WINDOW).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '202':
+          description: Задача создана, импорт выполняется воркером
+          headers:
+            Location:
+              schema: { type: string, example: /api/imports/1 }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ImportJob'
+        '422':
+          description: Невалидный файл
+        '429':
+          description: Превышен rate limit
+  /imports/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Imports]
+      summary: Статус и прогресс импорта (polling)
+      responses:
+        '200':
+          description: Статус задачи
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ImportJob'
+        '404':
+          description: Задача не найдена
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        email: { type: string, format: email }
+        roles:
+          type: array
+          items: { type: string }
+    PaginationMeta:
+      type: object
+      properties:
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 20 }
+        total: { type: integer, example: 40 }
+        totalPages: { type: integer, example: 2 }
+    ProductAttribute:
+      type: object
+      properties:
+        id: { type: integer }
+        key: { type: string, example: Размер }
+        value: { type: string, nullable: true, example: 46(M) }
+    ProductImage:
+      type: object
+      properties:
+        id: { type: integer }
+        url: { type: string, example: 'http://catalog.collant.ru/pics/SNL-504038_p.jpg' }
+        path: { type: string, nullable: true, example: /uploads/products/code/01-abc.jpg }
+        position: { type: integer }
+    Product:
+      type: object
+      properties:
+        id: { type: integer }
+        externalCode: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        price: { type: number, format: float, example: 1320 }
+        purchasePrice: { type: number, format: float, nullable: true, example: 880 }
+        discount: { type: number, format: float, nullable: true, example: 33.33 }
+        attributes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductAttribute'
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductImage'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProductInput:
+      type: object
+      required: [externalCode, name, price]
+      properties:
+        externalCode: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        price: { type: number }
+        purchasePrice: { type: number, nullable: true }
+        attributes:
+          type: array
+          items:
+            type: object
+            required: [key]
+            properties:
+              key: { type: string }
+              value: { type: string, nullable: true }
+        images:
+          type: array
+          items:
+            type: object
+            required: [url]
+            properties:
+              url: { type: string }
+              path: { type: string, nullable: true }
+    ImportError:
+      type: object
+      properties:
+        row: { type: integer, example: 7 }
+        message: { type: string }
+        externalCode: { type: string, nullable: true }
+    ImportJob:
+      type: object
+      properties:
+        id: { type: integer }
+        uuid: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        originalFilename: { type: string }
+        totalRows: { type: integer }
+        processedRows: { type: integer }
+        successRows: { type: integer }
+        errorRows: { type: integer }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportError'
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: string, format: date-time, nullable: true }
+        finishedAt: { type: string, format: date-time, nullable: true }

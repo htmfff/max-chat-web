@@ -1,0 +1,36 @@
+{
+  "name": "product-catalog-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "ng serve --proxy-config proxy.conf.json",
+    "build": "ng build",
+    "watch": "ng build --watch --configuration development",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@angular/animations": "^22.2.0",
+    "@angular/cdk": "^22.2.0",
+    "@angular/common": "^22.2.0",
+    "@angular/compiler": "^22.2.0",
+    "@angular/core": "^22.2.0",
+    "@angular/forms": "^22.2.0",
+    "@angular/material": "^22.2.0",
+    "@angular/platform-browser": "^22.2.0",
+    "@angular/router": "^22.2.0",
+    "@ngrx/effects": "^22.0.0",
+    "@ngrx/store": "^22.0.0",
+    "@ngrx/store-devtools": "^22.0.0",
+    "rxjs": "~7.8.2",
+    "tslib": "^2.8.1",
+    "zone.js": "~0.16.0"
+  },
+  "devDependencies": {
+    "@angular/build": "^22.2.0",
+    "@angular/cli": "^22.2.0",
+    "@angular/compiler-cli": "^22.2.0",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^26.6.6",
+    "typescript": "~6.0.0"
+  }
+}

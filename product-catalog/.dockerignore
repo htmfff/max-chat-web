@@ -1,0 +1,12 @@
+# Docker
+.env
+*.log
+backend/vendor/
+backend/var/
+backend/public/uploads/products/*
+!backend/public/uploads/products/.gitkeep
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/test-results/
+frontend/playwright-report/
